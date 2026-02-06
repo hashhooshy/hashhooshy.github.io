@@ -1,0 +1,1366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flux</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN for powerful data visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Firebase SDKs for Cloud Firestore and Authentication -->
+    <script type="module">
+        // Import the functions you need from the SDKs
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables for Firebase access
+        window.firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        window.initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        window.appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // Wait for DOM to be ready before initializing Firebase
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (Object.keys(window.firebaseConfig).length > 0) {
+                const app = initializeApp(window.firebaseConfig);
+                window.db = getFirestore(app);
+                window.auth = getAuth(app);
+                
+                try {
+                    if (window.initialAuthToken) {
+                        await signInWithCustomToken(window.auth, window.initialAuthToken);
+                    } else {
+                        await signInAnonymously(window.auth);
+                    }
+                } catch (error) {
+                    console.error("Firebase authentication error:", error);
+                }
+
+                // Listen for auth state changes to update the UI
+                onAuthStateChanged(window.auth, (user) => {
+                    if (user) {
+                        console.log("User is signed in with UID:", user.uid);
+                        window.userId = user.uid;
+                        document.getElementById('user-id-display').textContent = `User ID: ${user.uid}`;
+                        renderFluxApp(); // Re-render once authenticated
+                    } else {
+                        console.log("User is signed out.");
+                        window.userId = null;
+                        document.getElementById('user-id-display').textContent = 'Not signed in';
+                    }
+                });
+            } else {
+                console.warn("Firebase config not available. Cloud features will be disabled.");
+            }
+        });
+    </script>
+    <style>
+        /* General styling for a nice, clean look */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        /* Style for the custom modal dialog */
+        .custom-alert-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .custom-alert-box {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            max-width: 90%;
+            min-width: 300px;
+            text-align: center;
+            max-height: 80vh; /* Set a max height for the modal */
+            overflow-y: auto; /* Enable vertical scrolling */
+        }
+        
+        /* Carousel-specific styles */
+        .carousel-container {
+            position: relative;
+            max-width: 100%;
+            margin: auto;
+            overflow: hidden;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .carousel-slides {
+            display: flex;
+            transition: transform 0.5s ease-in-out;
+        }
+
+        .carousel-slide {
+            min-width: 100%;
+            flex-shrink: 0;
+            display: none; /* Hide all slides by default */
+        }
+        .carousel-slide.active {
+            display: block;
+        }
+
+        .carousel-slide img {
+            width: 100%;
+            height: auto;
+            object-fit: cover;
+        }
+
+        .carousel-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: rgba(0, 0, 0, 0.5);
+            color: white;
+            border: none;
+            cursor: pointer;
+            padding: 1rem;
+            z-index: 10;
+            transition: background-color 0.3s;
+        }
+        .carousel-btn:hover {
+            background-color: rgba(0, 0, 0, 0.8);
+        }
+        .carousel-prev {
+            left: 0;
+            border-top-right-radius: 0.5rem;
+            border-bottom-right-radius: 0.5rem;
+        }
+        .carousel-next {
+            right: 0;
+            border-top-left-radius: 0.5rem;
+            border-bottom-left-radius: 0.5rem;
+        }
+
+        /* Iframe-specific styles */
+        #iframe-view-container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        #iframe-container {
+            flex-grow: 1;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        /* Chart container styles */
+        .chart-container {
+            position: relative;
+            height: 40vh;
+            width: 100%;
+            margin-top: 1rem;
+        }
+
+        /* Circular progress styling */
+        .circular-progress {
+            position: relative;
+            width: 100px;
+            height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .circular-progress svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform: rotate(-90deg);
+        }
+        .circular-progress svg circle {
+            transition: stroke-dashoffset 0.5s ease-in-out;
+        }
+        
+        /* Modal styling */
+        .flux-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .flux-modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            max-width: 500px;
+            min-width: 300px;
+            text-align: center;
+        }
+
+        /* Styling for the new single-textarea editor */
+        #flux-editor {
+            width: 100%;
+            height: 100%;
+            font-size: 0.875rem;
+            line-height: 1.5;
+            margin: 0;
+            padding: 1rem;
+            border: none;
+            background-color: white; /* Changed to white */
+            color: #1f2937; /* Changed to dark gray for readability */
+            white-space: pre;
+            word-wrap: normal;
+            resize: none;
+            outline: none;
+            font-family: 'Fira Code', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
+        }
+        #flux-editor::placeholder {
+            color: #6b7280; /* Darker placeholder text for visibility on white background */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-4">
+
+    <!-- Main Container -->
+    <div class="min-h-screen flex flex-col lg:flex-row items-start justify-center p-4 gap-4">
+
+        <!-- Code Editor and Interpreter Input -->
+        <div id="main-app-container" class="w-full lg:w-1/2 p-4 bg-white rounded-xl shadow-2xl flex flex-col h-[70vh] lg:h-[80vh]">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-indigo-600">Flux Editor</h2>
+                <button id="commands-list-btn" class="p-2 rounded-full bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </button>
+            </div>
+            <!-- The new single textarea editor -->
+            <textarea
+                id="flux-editor"
+                spellcheck="false"
+                class="font-mono text-sm flex-grow border border-gray-300 rounded-lg"
+                placeholder="Enter your Flux code here..."
+            ></textarea>
+            
+            <div id="error-message" class="mt-4 p-3 bg-red-100 text-red-700 border border-red-400 rounded-lg font-mono text-sm hidden">
+                <p id="error-message-text"></p>
+            </div>
+        </div>
+
+        <!-- Rendered Output -->
+        <div id="rendered-app-container" class="w-full lg:w-1/2 p-4 bg-white rounded-xl shadow-2xl flex flex-col h-auto lg:h-[80vh] overflow-y-auto">
+            <h2 class="text-xl font-bold mb-4 text-indigo-600">Rendered Flux Application</h2>
+            
+            <!-- User ID Display -->
+            <p id="user-id-display" class="text-sm text-gray-500 mb-4 font-mono"></p>
+
+            <!-- Standard Flux Output Container -->
+            <div id="rendered-output" class="flex-grow p-4 bg-gray-50 rounded-lg">
+                <div id="dynamic-output" class="hidden">
+                    <!-- Dynamic content from button clicks will be appended here -->
+                </div>
+            </div>
+
+            <!-- Iframe Container (Hidden by default) -->
+            <div id="iframe-view-container" class="hidden">
+                <div id="iframe-container" class="flex-grow"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Custom Alert Modal -->
+    <div id="custom-alert-modal" class="custom-alert-overlay hidden">
+      <div class="custom-alert-box">
+        <p id="custom-alert-text" class="text-gray-800"></p>
+        <div class="mt-4 flex justify-center space-x-4">
+            <button id="custom-alert-close" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">OK</button>
+        </div>
+      </div>
+    </div>
+
+
+    <script>
+        // === Custom Alert Function (Replaces alert()) ===
+        const showCustomAlert = (message) => {
+            const modal = document.getElementById('custom-alert-modal');
+            const text = document.getElementById('custom-alert-text');
+            const closeBtn = document.getElementById('custom-alert-close');
+            text.innerHTML = message;
+            modal.classList.remove('hidden');
+            
+            closeBtn.onclick = () => modal.classList.add('hidden');
+        };
+
+        // === State Variables (replaces React's useState) ===
+        let fluxCode = '';
+        let fluxCommands = [];
+        let error = null;
+        const activeModals = {};
+        const state = {}; // New state object to hold dynamic values
+
+        // === DOM Element References ===
+        const editor = document.getElementById('flux-editor');
+        const outputContainer = document.getElementById('rendered-output');
+        const dynamicOutputContainer = document.getElementById('dynamic-output');
+        const iframeViewContainer = document.getElementById('iframe-view-container');
+        const iframeContainer = document.getElementById('iframe-container');
+        const errorContainer = document.getElementById('error-message');
+        const errorText = document.getElementById('error-message-text');
+        const commandsListBtn = document.getElementById('commands-list-btn');
+
+        // --- New `wait` function for async rendering ---
+        const wait = (seconds) => new Promise(resolve => setTimeout(resolve, seconds * 1000));
+
+        // --- View management for Iframe ---
+        const showIframeView = (url) => {
+            outputContainer.classList.add('hidden');
+            iframeViewContainer.classList.remove('hidden');
+            iframeContainer.innerHTML = `<iframe src="${url}"></iframe>`;
+        };
+
+        const showMainAppView = () => {
+            iframeViewContainer.classList.add('hidden');
+            outputContainer.classList.remove('hidden');
+            iframeContainer.innerHTML = '';
+        };
+
+        // --- Commands List Function ---
+        const showCommandsList = () => {
+            const commandsList = `
+                <h3 class="font-bold text-xl mb-4">Available Commands</h3>
+                <ul class="text-left">
+                    <li class="mb-2"><strong>heading:</strong> <code>text="string", size="h1|h2|h3|h4", color="tailwind-color-class", id="string(optional)"</code></li>
+                    <li class="mb-2"><strong>paragraph:</strong> <code>text="string", color="tailwind-color-class", id="string(optional)"</code></li>
+                    <li class="mb-2"><strong>list:</strong> <code>title="string", items=["item1", "item2"], listStyle="numbered|bulleted", itemStyle="tailwind-style-classes", color="tailwind-color-class", id="string(optional)"</code></li>
+                    <li class="mb-2"><strong>button:</strong> <code>text="string", style="tailwind-style-classes", onClick="flux commands"</code></li>
+                    <li class="mb-2"><strong>divider:</strong> <code>color="tailwind-color-class", id="string(optional)"</code></li>
+                    <li class="mb-2"><strong>card:</strong> <code>title="string", text="string", style="tailwind-style-classes", id="string(optional)"</code></li>
+                    <li class="mb-2"><strong>show:</strong> <code>id="string"</code></li>
+                    <li class="mb-2"><strong>hide:</strong> <code>id="string"</code></li>
+                    <li class="mb-2"><strong>wait:</strong> <code>seconds="number"</code></li>
+                    <li class="mb-2"><strong>input:</strong> <code>id="string", placeholder="string", style="tailwind-style-classes"</code></li>
+                    <li class="mb-2"><strong>textarea:</strong> <code>id="string", placeholder="string", style="tailwind-style-classes"</code></li>
+                    <li class="mb-2"><strong>alert:</strong> <code>text="string", type="success|warning|error|info"</code></li>
+                    <li class="mb-2"><strong>progress:</strong> <code>label="string", value="number", max="number", id="string"</code></li>
+                    <li class="mb-2"><strong>link:</strong> <code>text="string", url="string"</code> (loads URL in iframe)</li>
+                    <li class="mb-2"><strong>iframe:</strong> <code>url="string"</code> (loads URL in iframe)</li>
+                    <li class="mb-2"><strong>search:</strong> <code>query="string", queries="number"</code></li>
+                    <li class="mb-2"><strong>show.image:</strong> <code>text="string", id="string"</code></li>
+                    <li class="mb-2"><strong>table:</strong> <code>headers=["Header1", "Header2"], rows=[["data1", "data2"]], id="string(optional)"</code></li>
+                    <li class="mb-2"><strong>carousel:</strong> <code>images=["url1", "url2"], id="string(optional)"</code></li>
+                    <li class="mb-2"><strong>chart:</strong> <code>type="bar|line|pie", labels=["label1", "label2"], data=[10, 20], title="string" (optional), id="string(optional)"</code></li>
+                    <li class="mb-2"><strong>form:</strong> <code>id="string"</code> (a container for inputs)</li>
+                    <li class="mb-2"><strong>submit:</strong> <code>formId="string", text="string", onClick="flux commands"</code></li>
+                    <li class="mb-2"><strong>store:</strong> <code>id="string", value="string"</code></li>
+                    <li class="mb-2"><strong>load:</strong> <code>id="string"</code></li>
+                    <li class="mb-2 font-bold">--- New UI Commands ---</li>
+                    <li class="mb-2"><strong>badge:</strong> <code>text="string", color="tailwind-color-class"</code></li>
+                    <li class="mb-2"><strong>circular-progress:</strong> <code>value="number", max="number", size="number(px)", color="tailwind-color-class"</code></li>
+                    <li class="mb-2"><strong>toggle:</strong> <code>id="string", label="string"</code></li>
+                    <li class="mb-2"><strong>radio-group:</strong> <code>name="string", options=["option1", "option2"]</code></li>
+                    <li class="mb-2"><strong>checkbox-group:</strong> <code>name="string", options=["option1", "option2"]</code></li>
+                    <li class="mb-2"><strong>dropdown:</strong> <code>id="string", options=["option1", "option2"], label="string"</code></li>
+                    <li class="mb-2"><strong>modal:</strong> <code>id="string", title="string", text="string"</code></li>
+                    <li class="mb-2"><strong>button.modal:</strong> <code>text="string", modalId="string", style="tailwind-style-classes"</code></li>
+                    <li class="mb-2"><strong>loop:</strong> <code>count="number"</code> followed by commands and <strong>endloop</strong></li>
+                </ul>
+            `;
+            showCustomAlert(commandsList);
+        };
+        
+        // --- The Custom Language Parser ---
+        const parseFluxCode = (codeString) => {
+            const lines = codeString.split('\n');
+            const parsedCommands = [];
+            let parsingError = null;
+            let i = 0;
+        
+            const parseBlock = () => {
+                const blockCommands = [];
+                while (i < lines.length) {
+                    const line = lines[i].trim();
+                    i++;
+                    
+                    if (line.startsWith('#') || line === '') {
+                        continue;
+                    }
+                    if (line === 'endloop') {
+                        return blockCommands;
+                    }
+
+                    const colonIndex = line.indexOf(':');
+                    if (colonIndex === -1) {
+                        parsingError = `Syntax Error: Malformed command on line "${line}". Expected "type: key=value".`;
+                        return null;
+                    }
+        
+                    const type = line.substring(0, colonIndex).trim();
+                    const propsPart = line.substring(colonIndex + 1).trim();
+        
+                    if (!type || !propsPart) {
+                        parsingError = `Syntax Error: Malformed command on line "${line}". Expected "type: key=value".`;
+                        return null;
+                    }
+        
+                    const props = {};
+                    const parts = propsPart.split(/,(?![^[]*\])/);
+                    for (const part of parts) {
+                        const [key, value] = part.split('=').map(s => s.trim());
+                        if (!key || !value) { continue; }
+            
+                        let cleanValue;
+                        if (value.startsWith('"') && value.endsWith('"')) {
+                            cleanValue = value.slice(1, -1);
+                        } else if (value.startsWith('[') && value.endsWith(']')) {
+                            try {
+                                cleanValue = JSON.parse(value);
+                            } catch (e) {
+                                parsingError = `Syntax Error: Invalid JSON array format for "${key}" on line "${line}".`;
+                                return null;
+                            }
+                        } else {
+                            cleanValue = value;
+                        }
+                        props[key] = cleanValue;
+                    }
+                    
+                    if (type === 'loop') {
+                        const loopBlock = parseBlock();
+                        if (parsingError) return null;
+                        blockCommands.push({ type, props, commands: loopBlock });
+                    } else {
+                        blockCommands.push({ type, props });
+                    }
+                }
+                return blockCommands;
+            };
+
+            const commands = parseBlock();
+
+            if (parsingError) {
+                error = parsingError;
+                fluxCommands = [];
+            } else {
+                error = null;
+                fluxCommands = commands;
+            }
+            return { commands: fluxCommands, error: parsingError };
+        };
+
+        // --- Process a single command asynchronously ---
+        const processCommand = async (command, targetContainer) => {
+            const type = command?.type;
+            const props = command?.props || {};
+            let element;
+
+            switch (type) {
+                case 'heading':
+                    let HeadingTag = props.size || 'h2';
+                    const validHeadingTags = ['h1', 'h2', 'h3', 'h4'];
+                    if (!validHeadingTags.includes(HeadingTag)) {
+                        HeadingTag = 'h2';
+                    }
+                    element = document.createElement(HeadingTag);
+                    element.textContent = props.text;
+                    element.className = `font-bold ${props.color || 'text-gray-900'}`;
+                    if (props.id) {
+                        element.id = props.id;
+                    }
+                    break;
+                case 'paragraph':
+                    element = document.createElement('p');
+                    element.textContent = props.text;
+                    element.className = `mt-2 ${props.color || 'text-gray-600'}`;
+                    if (props.id) {
+                        element.id = props.id;
+                    }
+                    break;
+                case 'list':
+                    element = document.createElement('div');
+                    element.className = 'my-4';
+                    if (props.id) {
+                        element.id = props.id;
+                    }
+                    const listTitle = document.createElement('h3');
+                    listTitle.textContent = props.title;
+                    listTitle.className = `font-semibold text-lg ${props.color || 'text-gray-900'}`;
+                    element.appendChild(listTitle);
+
+                    const listElementTag = props.listStyle === 'numbered' ? 'ol' : 'ul';
+                    const listClassName = props.listStyle === 'numbered' ? 'list-decimal' : 'list-disc';
+                    const ul = document.createElement(listElementTag);
+                    ul.className = `${listClassName} list-inside mt-2`;
+                    
+                    const items = Array.isArray(props.items) ? props.items : (props.items ? props.items.split(',') : []);
+
+                    if (items.length > 0) {
+                        items.forEach(itemText => {
+                            const li = document.createElement('li');
+                            li.textContent = itemText.trim();
+                            li.className = `${props.color || 'text-gray-700'} ${props.itemStyle || ''}`;
+                            ul.appendChild(li);
+                        });
+                    } else if (props.items && typeof props.items === 'string') {
+                        const li = document.createElement('li');
+                        li.textContent = 'Invalid items format';
+                        li.className = 'text-red-500';
+                        ul.appendChild(li);
+                    }
+
+                    element.appendChild(ul);
+                    break;
+                case 'button':
+                    element = document.createElement('button');
+                    element.textContent = props.text;
+                    element.className = `px-6 py-3 mt-4 font-bold rounded-lg transition-all duration-300 transform hover:scale-105 shadow-md ${props.style}`;
+                    if (props.id) {
+                        element.id = props.id;
+                    }
+                    if (props.onClick) {
+                        element.addEventListener('click', (event) => {
+                            const originalText = event.target.textContent;
+                            event.target.textContent = 'Loading...';
+                            event.target.disabled = true;
+                            executeFluxCommand(props.onClick)
+                                .finally(() => {
+                                    event.target.textContent = originalText;
+                                    event.target.disabled = false;
+                                });
+                        });
+                    }
+                    break;
+                case 'divider':
+                    element = document.createElement('hr');
+                    element.className = `my-8 border-t-2 ${props.color || 'border-gray-200'}`;
+                    if (props.id) {
+                        element.id = props.id;
+                    }
+                    break;
+                case 'card':
+                    element = document.createElement('div');
+                    element.className = `bg-white p-6 rounded-xl shadow-lg mt-4 ${props.style || ''}`;
+                    if (props.id) {
+                        element.id = props.id;
+                    }
+                    const cardTitle = document.createElement('h3');
+                    cardTitle.textContent = props.title;
+                    cardTitle.className = 'text-xl font-semibold text-gray-800';
+                    const cardText = document.createElement('p');
+                    cardText.textContent = props.text;
+                    cardText.className = 'mt-2 text-gray-600';
+                    element.appendChild(cardTitle);
+                    element.appendChild(cardText);
+                    break;
+                case 'show':
+                    const showElement = document.getElementById(props.id);
+                    if (showElement) {
+                        showElement.classList.remove('hidden');
+                    }
+                    break;
+                case 'hide':
+                    const hideElement = document.getElementById(props.id);
+                    if (hideElement) {
+                        hideElement.classList.add('hidden');
+                    }
+                    break;
+                case 'wait':
+                    const seconds = parseFloat(props.seconds);
+                    if (!isNaN(seconds)) {
+                        await wait(seconds);
+                    }
+                    break;
+                case 'input':
+                    element = document.createElement('input');
+                    element.type = "text";
+                    element.placeholder = props.placeholder || '';
+                    element.className = `w-full h-10 px-4 mt-4 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${props.style || ''}`;
+                    if (props.id) {
+                        element.id = props.id;
+                    }
+                    break;
+                case 'textarea':
+                    element = document.createElement('textarea');
+                    element.placeholder = props.placeholder || '';
+                    element.className = `w-full h-32 px-4 py-2 mt-4 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y ${props.style || ''}`;
+                    if (props.id) {
+                        element.id = props.id;
+                    }
+                    break;
+                case 'alert':
+                    element = document.createElement('div');
+                    let alertClasses = 'p-4 rounded-lg text-sm font-medium mt-4';
+                    let alertType = props.type || 'info';
+                    
+                    switch(alertType) {
+                        case 'success':
+                            alertClasses += ' bg-green-100 text-green-700';
+                            break;
+                        case 'warning':
+                            alertClasses += ' bg-yellow-100 text-yellow-700';
+                            break;
+                        case 'error':
+                            alertClasses += ' bg-red-100 text-red-700';
+                            break;
+                        case 'info':
+                        default:
+                            alertClasses += ' bg-blue-100 text-blue-700';
+                            break;
+                    }
+                    
+                    element.className = alertClasses;
+                    element.textContent = props.text || 'An alert message.';
+                    break;
+                case 'progress':
+                    element = document.createElement('div');
+                    element.className = `w-full bg-gray-200 rounded-full h-2.5 mt-4 ${props.style || ''}`;
+                    if (props.id) {
+                        element.id = props.id;
+                    }
+                    
+                    const progressBar = document.createElement('div');
+                    const value = parseFloat(props.value) || 0;
+                    const max = parseFloat(props.max) || 100;
+                    const width = Math.min(100, (value / max) * 100);
+
+                    progressBar.className = `bg-indigo-600 h-2.5 rounded-full transition-all duration-500 ease-out`;
+                    progressBar.style.width = `${width}%`;
+                    element.appendChild(progressBar);
+                    
+                    if (props.label) {
+                        const label = document.createElement('p');
+                        label.textContent = `${props.label}: ${value}%`;
+                        label.className = `mt-2 text-sm text-gray-600`;
+                        if (props.id) {
+                            label.id = `${props.id}-label`;
+                        }
+                        targetContainer.appendChild(label);
+                    }
+                    break;
+                case 'link':
+                    element = document.createElement('a');
+                    element.textContent = props.text;
+                    element.className = `text-indigo-600 hover:underline mt-2 inline-block cursor-pointer ${props.style || ''}`;
+                    if (props.url) {
+                        element.addEventListener('click', () => {
+                            showIframeView(props.url);
+                        });
+                    } else if (props.onClick) {
+                         element.addEventListener('click', () => {
+                            executeFluxCommand(props.onClick);
+                         });
+                    }
+                    break;
+                case 'iframe':
+                    if (props.url) {
+                        showIframeView(props.url);
+                    } else {
+                        element = document.createElement('div');
+                        element.textContent = `Syntax Error: 'iframe' command requires a 'url' string.`;
+                        element.className = 'text-red-500';
+                    }
+                    break;
+                case 'search':
+                    const query = props.query;
+                    const numQueries = parseInt(props.queries, 10);
+                    if (query && !isNaN(numQueries) && numQueries > 0) {
+                        const loadingDiv = document.createElement('div');
+                        loadingDiv.textContent = `Searching for "${query}" on Wikipedia...`;
+                        loadingDiv.className = 'text-center text-gray-500 mt-4';
+                        targetContainer.appendChild(loadingDiv);
+
+                        try {
+                            const apiUrl = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=${numQueries}&format=json&origin=*`;
+                            const response = await fetch(apiUrl);
+                            const searchResults = await response.json();
+                            
+                            loadingDiv.remove();
+
+                            if (searchResults && searchResults.length > 3 && searchResults[3].length > 0) {
+                                const titles = searchResults[1];
+                                const urls = searchResults[3];
+
+                                const ul = document.createElement('ul');
+                                ul.className = 'list-disc list-inside mt-4 space-y-2';
+
+                                for (let i = 0; i < urls.length; i++) {
+                                    const li = document.createElement('li');
+                                    const a = document.createElement('a');
+                                    a.href = urls[i];
+                                    a.textContent = titles[i];
+                                    a.target = "_blank";
+                                    a.className = 'text-indigo-600 hover:underline';
+                                    li.appendChild(a);
+                                    ul.appendChild(li);
+                                }
+                                targetContainer.appendChild(ul);
+                            } else {
+                                loadingDiv.textContent = `No results found for "${query}". Please try a different search term.`;
+                            }
+                        } catch (e) {
+                             loadingDiv.textContent = `An error occurred during the search: ${e.message}`;
+                             console.error(e);
+                        }
+                    } else {
+                        element = document.createElement('div');
+                        element.textContent = `Syntax Error: search command requires a 'query' string and a 'queries' number.`;
+                        element.className = 'text-red-500';
+                    }
+                    break;
+                case 'show.image':
+                    const imagePrompt = props.text;
+                    const imageId = props.id;
+                    if (imagePrompt && imageId) {
+                        const loadingDiv = document.createElement('div');
+                        loadingDiv.textContent = `Generating image for "${imagePrompt}"...`;
+                        loadingDiv.className = 'text-center text-gray-500 mt-4';
+                        loadingDiv.id = `loading-${imageId}`;
+                        targetContainer.appendChild(loadingDiv);
+
+                        try {
+                            const payload = { instances: { prompt: imagePrompt }, parameters: { "sampleCount": 1} };
+                            const apiKey = "";
+                            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`;
+                            const response = await fetch(apiUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload)
+                            });
+                            
+                            const result = await response.json();
+                            
+                            loadingDiv.remove();
+
+                            if (result.predictions && result.predictions.length > 0 && result.predictions[0].bytesBase64Encoded) {
+                                const base64Data = result.predictions[0].bytesBase64Encoded;
+                                const imageUrl = `data:image/png;base64,${base64Data}`;
+                                
+                                const img = document.createElement('img');
+                                img.src = imageUrl;
+                                img.id = imageId;
+                                img.alt = imagePrompt;
+                                img.className = 'mt-4 rounded-lg shadow-md max-w-full h-auto';
+                                
+                                targetContainer.appendChild(img);
+                            } else {
+                                const errorDiv = document.createElement('div');
+                                errorDiv.textContent = `Error generating image: No image data returned.`;
+                                errorDiv.className = 'text-red-500 mt-4';
+                                targetContainer.appendChild(errorDiv);
+                            }
+
+                        } catch (e) {
+                            loadingDiv.textContent = `An error occurred during image generation: ${e.message}`;
+                            console.error(e);
+                        }
+                    } else {
+                        element = document.createElement('div');
+                        element.textContent = `Syntax Error: 'show.image' command requires a 'text' string and an 'id' string.`;
+                        element.className = 'text-red-500';
+                    }
+                    break;
+                case 'table':
+                    const headers = props.headers || [];
+                    const rows = props.rows || [];
+                    element = document.createElement('div');
+                    element.className = 'mt-4 overflow-x-auto rounded-lg shadow-md';
+                    if (props.id) {
+                        element.id = props.id;
+                    }
+
+                    const table = document.createElement('table');
+                    table.className = 'min-w-full divide-y divide-gray-200';
+
+                    const thead = document.createElement('thead');
+                    thead.className = 'bg-gray-50';
+                    const headerRow = document.createElement('tr');
+                    headers.forEach(headerText => {
+                        const th = document.createElement('th');
+                        th.scope = 'col';
+                        th.className = 'px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider';
+                        th.textContent = headerText;
+                        headerRow.appendChild(th);
+                    });
+                    thead.appendChild(headerRow);
+                    table.appendChild(thead);
+
+                    const tbody = document.createElement('tbody');
+                    tbody.className = 'bg-white divide-y divide-gray-200';
+                    if (Array.isArray(rows)) {
+                        rows.forEach(rowData => {
+                            const dataRow = document.createElement('tr');
+                            if (Array.isArray(rowData)) {
+                                rowData.forEach(cellData => {
+                                    const td = document.createElement('td');
+                                    td.className = 'px-6 py-4 whitespace-nowrap text-sm text-gray-500';
+                                    td.textContent = cellData;
+                                    dataRow.appendChild(td);
+                                });
+                            }
+                            tbody.appendChild(dataRow);
+                        });
+                    }
+                    table.appendChild(tbody);
+                    element.appendChild(table);
+                    break;
+                case 'carousel':
+                    const images = props.images || [];
+                    if (images.length === 0) {
+                        element = document.createElement('div');
+                        element.textContent = `Syntax Error: 'carousel' command requires an 'images' array with at least one URL.`;
+                        element.className = 'text-red-500';
+                    } else {
+                        const carouselContainer = document.createElement('div');
+                        carouselContainer.className = 'carousel-container mt-4';
+                        if (props.id) {
+                            carouselContainer.id = props.id;
+                        }
+
+                        const carouselSlides = document.createElement('div');
+                        carouselSlides.className = 'carousel-slides';
+
+                        images.forEach((image, index) => {
+                            const slide = document.createElement('div');
+                            slide.className = `carousel-slide ${index === 0 ? 'active' : ''}`;
+                            const img = document.createElement('img');
+                            img.src = image;
+                            img.alt = `Slide ${index + 1}`;
+                            img.onerror = () => img.src = `https://placehold.co/800x400/CCCCCC/333333?text=Image+Not+Found`;
+                            slide.appendChild(img);
+                            carouselSlides.appendChild(img);
+                        });
+                        carouselContainer.appendChild(carouselSlides);
+
+                        const prevBtn = document.createElement('button');
+                        prevBtn.className = 'carousel-btn carousel-prev';
+                        prevBtn.innerHTML = '&#10094;';
+                        prevBtn.onclick = () => moveSlide(carouselContainer, -1);
+                        carouselContainer.appendChild(prevBtn);
+
+                        const nextBtn = document.createElement('button');
+                        nextBtn.className = 'carousel-btn carousel-next';
+                        nextBtn.innerHTML = '&#10095;';
+                        nextBtn.onclick = () => moveSlide(carouselContainer, 1);
+                        carouselContainer.appendChild(nextBtn);
+
+                        element = carouselContainer;
+                    }
+                    break;
+                case 'chart':
+                    if (!props.type || !props.labels || !props.data) {
+                        element = document.createElement('div');
+                        element.textContent = `Syntax Error: 'chart' command requires 'type', 'labels', and 'data' props.`;
+                        element.className = 'text-red-500';
+                        break;
+                    }
+
+                    element = document.createElement('div');
+                    element.className = 'chart-container';
+                    if (props.id) {
+                        element.id = props.id;
+                    }
+                    const canvas = document.createElement('canvas');
+                    element.appendChild(canvas);
+                    targetContainer.appendChild(element);
+
+                    const ctx = canvas.getContext('2d');
+                    
+                    const chartOptions = {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: props.type === 'pie'
+                            },
+                            title: {
+                                display: !!props.title,
+                                text: props.title,
+                                font: {
+                                    size: 16,
+                                    weight: 'bold'
+                                }
+                            }
+                        }
+                    };
+                    
+                    new Chart(ctx, {
+                        type: props.type,
+                        data: {
+                            labels: props.labels,
+                            datasets: [{
+                                label: 'Data',
+                                data: props.data,
+                                backgroundColor: [
+                                    'rgba(79, 70, 229, 0.8)',
+                                    'rgba(239, 68, 68, 0.8)',
+                                    'rgba(34, 197, 94, 0.8)',
+                                    'rgba(59, 130, 246, 0.8)',
+                                    'rgba(245, 158, 11, 0.8)'
+                                ],
+                                borderColor: [
+                                    'rgba(79, 70, 229, 1)',
+                                    'rgba(239, 68, 68, 1)',
+                                    'rgba(34, 197, 94, 1)',
+                                    'rgba(59, 130, 246, 1)',
+                                    'rgba(245, 158, 11, 1)'
+                                ],
+                                borderWidth: 1
+                            }]
+                        },
+                        options: chartOptions
+                    });
+                    break;
+                case 'form':
+                    element = document.createElement('form');
+                    element.className = `space-y-4 my-4`;
+                    if (props.id) {
+                        element.id = props.id;
+                    }
+                    element.onsubmit = (e) => e.preventDefault();
+                    break;
+                case 'submit':
+                    const form = document.getElementById(props.formId);
+                    if (!form) {
+                        element = document.createElement('div');
+                        element.textContent = `Error: 'submit' button's 'formId' not found.`;
+                        element.className = 'text-red-500 mt-4';
+                        break;
+                    }
+                    element = document.createElement('button');
+                    element.textContent = props.text;
+                    element.type = 'submit';
+                    element.className = `px-6 py-3 font-bold rounded-lg transition-all duration-300 transform hover:scale-105 shadow-md ${props.style}`;
+                    
+                    if (props.onClick) {
+                         element.addEventListener('click', async (event) => {
+                             const originalText = event.target.textContent;
+                             event.target.textContent = 'Submitting...';
+                             event.target.disabled = true;
+
+                             const formData = {};
+                             const inputs = form.querySelectorAll('input, textarea');
+                             inputs.forEach(input => {
+                                 if (input.id) {
+                                     formData[input.id] = input.value;
+                                 }
+                             });
+                            
+                             showCustomAlert(`Form Data: <pre>${JSON.stringify(formData, null, 2)}</pre>`);
+                             
+                             event.target.textContent = originalText;
+                             event.target.disabled = false;
+                         });
+                    }
+                    break;
+                case 'store':
+                    if (!window.db || !window.userId) {
+                        showCustomAlert("Cloud services are not available or user is not authenticated.");
+                        return;
+                    }
+                    if (!props.id || !props.value) {
+                        showCustomAlert("Error: 'store' command requires both an 'id' and a 'value'.");
+                        return;
+                    }
+
+                    try {
+                        const dataRef = doc(window.db, `artifacts/${window.appId}/users/${window.userId}/data`, props.id);
+                        await setDoc(dataRef, { value: props.value });
+                        showCustomAlert(`Successfully stored data with ID: <strong>${props.id}</strong>`);
+                    } catch (e) {
+                        showCustomAlert(`Error storing data: ${e.message}`);
+                        console.error("Error storing data:", e);
+                    }
+                    break;
+                case 'load':
+                    if (!window.db || !window.userId) {
+                        showCustomAlert("Cloud services are not available or user is not authenticated.");
+                        return;
+                    }
+                    if (!props.id) {
+                        showCustomAlert("Error: 'load' command requires an 'id'.");
+                        return;
+                    }
+
+                    try {
+                        const dataRef = doc(window.db, `artifacts/${window.appId}/users/${window.userId}/data`, props.id);
+                        const dataSnap = await getDoc(dataRef);
+                        if (dataSnap.exists()) {
+                            const data = dataSnap.data();
+                            showCustomAlert(`Loaded data for <strong>${props.id}</strong>: <pre>${data.value}</pre>`);
+                        } else {
+                            showCustomAlert(`No data found for ID: <strong>${props.id}</strong>`);
+                        }
+                    } catch (e) {
+                        showCustomAlert(`Error loading data: ${e.message}`);
+                        console.error("Error loading data:", e);
+                    }
+                    break;
+                case 'badge':
+                    element = document.createElement('span');
+                    element.textContent = props.text;
+                    element.className = `inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${props.color || 'bg-gray-100 text-gray-800'}`;
+                    break;
+                case 'circular-progress':
+                    const progressValue = parseFloat(props.value) || 0;
+                    const progressMax = parseFloat(props.max) || 100;
+                    const progressSize = parseFloat(props.size) || 100;
+                    const radius = (progressSize - 10) / 2;
+                    const circumference = 2 * Math.PI * radius;
+                    const offset = circumference - (progressValue / progressMax) * circumference;
+                    
+                    element = document.createElement('div');
+                    element.className = 'circular-progress';
+                    element.style.width = `${progressSize}px`;
+                    element.style.height = `${progressSize}px`;
+                    
+                    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                    svg.setAttribute("width", progressSize);
+                    svg.setAttribute("height", progressSize);
+                    
+                    const circleBg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    circleBg.setAttribute("cx", progressSize / 2);
+                    circleBg.setAttribute("cy", progressSize / 2);
+                    circleBg.setAttribute("r", radius);
+                    circleBg.setAttribute("stroke-width", "5");
+                    circleBg.setAttribute("stroke", "rgba(229, 231, 235, 1)");
+                    circleBg.setAttribute("fill", "transparent");
+                    
+                    const circleFg = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    circleFg.setAttribute("cx", progressSize / 2);
+                    circleFg.setAttribute("cy", progressSize / 2);
+                    circleFg.setAttribute("r", radius);
+                    circleFg.setAttribute("stroke-width", "5");
+                    circleFg.setAttribute("stroke", props.color || 'rgba(79, 70, 229, 1)');
+                    circleFg.setAttribute("fill", "transparent");
+                    circleFg.setAttribute("stroke-dasharray", circumference);
+                    circleFg.setAttribute("stroke-dashoffset", offset);
+                    
+                    svg.appendChild(circleBg);
+                    svg.appendChild(circleFg);
+                    element.appendChild(svg);
+                    
+                    const text = document.createElement('span');
+                    text.textContent = `${Math.round(progressValue / progressMax * 100)}%`;
+                    text.className = 'absolute text-sm font-semibold text-gray-800';
+                    element.appendChild(text);
+
+                    break;
+                case 'toggle':
+                    element = document.createElement('label');
+                    element.className = `flex items-center cursor-pointer mt-4`;
+                    
+                    const toggleInput = document.createElement('input');
+                    toggleInput.type = 'checkbox';
+                    toggleInput.id = props.id;
+                    toggleInput.className = 'sr-only peer';
+                    element.appendChild(toggleInput);
+                    
+                    const toggleDiv = document.createElement('div');
+                    toggleDiv.className = `relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:border-gray-300 after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600`;
+                    element.appendChild(toggleDiv);
+
+                    if (props.label) {
+                        const toggleLabel = document.createElement('span');
+                        toggleLabel.className = 'ml-3 text-sm font-medium text-gray-900';
+                        toggleLabel.textContent = props.label;
+                        element.appendChild(toggleLabel);
+                    }
+                    break;
+                case 'radio-group':
+                    const radioGroupName = props.name;
+                    const radioOptions = props.options || [];
+
+                    if (!radioGroupName || radioOptions.length === 0) {
+                        element = document.createElement('div');
+                        element.textContent = `Syntax Error: 'radio-group' requires a 'name' and an 'options' array.`;
+                        element.className = 'text-red-500';
+                        break;
+                    }
+
+                    element = document.createElement('div');
+                    element.className = 'space-y-2 mt-4';
+                    
+                    radioOptions.forEach(optionText => {
+                        const radioContainer = document.createElement('div');
+                        radioContainer.className = 'flex items-center';
+                        
+                        const radioInput = document.createElement('input');
+                        radioInput.type = 'radio';
+                        radioInput.name = radioGroupName;
+                        radioInput.value = optionText;
+                        radioInput.className = 'h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300';
+                        radioContainer.appendChild(radioInput);
+                        
+                        const radioLabel = document.createElement('label');
+                        radioLabel.className = 'ml-3 block text-sm font-medium text-gray-700';
+                        radioLabel.textContent = optionText;
+                        radioContainer.appendChild(radioLabel);
+
+                        element.appendChild(radioContainer);
+                    });
+                    break;
+                case 'checkbox-group':
+                    const checkboxGroupName = props.name;
+                    const checkboxOptions = props.options || [];
+
+                    if (!checkboxGroupName || checkboxOptions.length === 0) {
+                        element = document.createElement('div');
+                        element.textContent = `Syntax Error: 'checkbox-group' requires a 'name' and an 'options' array.`;
+                        element.className = 'text-red-500';
+                        break;
+                    }
+                    
+                    element = document.createElement('div');
+                    element.className = 'space-y-2 mt-4';
+
+                    checkboxOptions.forEach(optionText => {
+                        const checkboxContainer = document.createElement('div');
+                        checkboxContainer.className = 'flex items-center';
+                        
+                        const checkboxInput = document.createElement('input');
+                        checkboxInput.type = 'checkbox';
+                        checkboxInput.name = checkboxGroupName;
+                        checkboxInput.value = optionText;
+                        checkboxInput.className = 'h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500';
+                        checkboxContainer.appendChild(checkboxInput);
+
+                        const checkboxLabel = document.createElement('label');
+                        checkboxLabel.className = 'ml-3 block text-sm font-medium text-gray-700';
+                        checkboxLabel.textContent = optionText;
+                        checkboxContainer.appendChild(checkboxLabel);
+
+                        element.appendChild(checkboxContainer);
+                    });
+                    break;
+                case 'dropdown':
+                    const dropdownOptions = props.options || [];
+
+                    if (!props.id || dropdownOptions.length === 0) {
+                        element = document.createElement('div');
+                        element.textContent = `Syntax Error: 'dropdown' requires an 'id' and an 'options' array.`;
+                        element.className = 'text-red-500';
+                        break;
+                    }
+
+                    element = document.createElement('div');
+                    element.className = 'mt-4';
+
+                    if (props.label) {
+                        const label = document.createElement('label');
+                        label.htmlFor = props.id;
+                        label.className = 'block text-sm font-medium text-gray-700';
+                        label.textContent = props.label;
+                        element.appendChild(label);
+                    }
+                    
+                    const select = document.createElement('select');
+                    select.id = props.id;
+                    select.className = 'mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md';
+                    
+                    dropdownOptions.forEach(optionText => {
+                        const option = document.createElement('option');
+                        option.value = optionText;
+                        option.textContent = optionText;
+                        select.appendChild(option);
+                    });
+                    element.appendChild(select);
+                    break;
+                case 'modal':
+                    const modalElement = document.createElement('div');
+                    modalElement.id = `modal-${props.id}`;
+                    modalElement.className = 'flux-modal-overlay hidden';
+
+                    const modalContent = document.createElement('div');
+                    modalContent.className = 'flux-modal-content';
+
+                    const modalTitle = document.createElement('h3');
+                    modalTitle.textContent = props.title;
+                    modalTitle.className = 'text-xl font-bold mb-2 text-gray-800';
+                    modalContent.appendChild(modalTitle);
+
+                    const modalText = document.createElement('p');
+                    modalText.textContent = props.text;
+                    modalText.className = 'text-gray-600 mb-4';
+                    modalContent.appendChild(modalText);
+
+                    const modalCloseBtn = document.createElement('button');
+                    modalCloseBtn.textContent = 'Close';
+                    modalCloseBtn.className = 'px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition';
+                    modalCloseBtn.onclick = () => modalElement.classList.add('hidden');
+                    modalContent.appendChild(modalCloseBtn);
+                    
+                    modalElement.appendChild(modalContent);
+                    targetContainer.appendChild(modalElement);
+                    break;
+                case 'button.modal':
+                    element = document.createElement('button');
+                    element.textContent = props.text;
+                    element.className = `px-6 py-3 mt-4 font-bold rounded-lg transition-all duration-300 transform hover:scale-105 shadow-md ${props.style}`;
+                    
+                    if (props.modalId) {
+                        element.addEventListener('click', () => {
+                            const modal = document.getElementById(`modal-${props.modalId}`);
+                            if (modal) {
+                                modal.classList.remove('hidden');
+                            } else {
+                                showCustomAlert(`Error: Modal with ID '${props.modalId}' not found.`);
+                            }
+                        });
+                    } else {
+                        element.addEventListener('click', () => {
+                            showCustomAlert(`Error: 'button.modal' requires a 'modalId'.`);
+                        });
+                    }
+                    break;
+                case 'loop':
+                    const count = parseInt(props.count, 10);
+                    if (!isNaN(count) && count > 0 && Array.isArray(command.commands)) {
+                        for (let i = 0; i < count; i++) {
+                            for (const loopCommand of command.commands) {
+                                await processCommand(loopCommand, targetContainer);
+                            }
+                        }
+                    }
+                    break;
+                default:
+                    return;
+            }
+            if (element) {
+                targetContainer.appendChild(element);
+            }
+        };
+
+        const moveSlide = (carousel, direction) => {
+            const slides = carousel.querySelectorAll('.carousel-slide');
+            const totalSlides = slides.length;
+            let currentSlide = 0;
+            slides.forEach((slide, index) => {
+                if (slide.classList.contains('active')) {
+                    currentSlide = index;
+                    slide.classList.remove('active');
+                }
+            });
+
+            let newSlide = (currentSlide + direction + totalSlides) % totalSlides;
+            slides[newSlide].classList.add('active');
+        };
+        
+        // --- Core Execution Logic ---
+        const executeFluxCommand = async (commandString) => {
+            dynamicOutputContainer.innerHTML = '';
+            dynamicOutputContainer.classList.remove('hidden');
+            const { commands, error } = parseFluxCode(commandString);
+            
+            if (error) {
+                showCustomAlert(error);
+                return;
+            }
+
+            for (const command of commands) {
+                await processCommand(command, dynamicOutputContainer);
+            }
+        };
+        
+        // --- Render the initial state of the app ---
+        const renderFluxApp = async () => {
+            const code = editor.value;
+            outputContainer.innerHTML = '';
+            dynamicOutputContainer.innerHTML = '';
+            dynamicOutputContainer.classList.add('hidden');
+            
+            const { commands, error } = parseFluxCode(code);
+            
+            if (error) {
+                errorText.textContent = error;
+                errorContainer.classList.remove('hidden');
+            } else {
+                errorContainer.classList.add('hidden');
+                let currentFormElement = null;
+                for (const command of commands) {
+                    if (command.type === 'form') {
+                        currentFormElement = document.createElement('form');
+                        currentFormElement.className = `space-y-4 my-4`;
+                        if (command.props.id) {
+                            currentFormElement.id = command.props.id;
+                        }
+                        currentFormElement.onsubmit = (e) => e.preventDefault();
+                        outputContainer.appendChild(currentFormElement);
+                        await processCommand(command, outputContainer);
+                    } else if (currentFormElement && (command.type === 'input' || command.type === 'textarea')) {
+                        await processCommand(command, currentFormElement);
+                    } else {
+                        await processCommand(command, outputContainer);
+                        currentFormElement = null;
+                    }
+                }
+            }
+        };
+        
+        // --- Event Listener for the editor input ---
+        editor.addEventListener('input', renderFluxApp);
+        commandsListBtn.addEventListener('click', showCommandsList);
+
+        // --- Example Code to pre-populate editor ---
+        const exampleCode = `
+heading: text="Welcome to the Flux Editor", size="h1", color="text-indigo-600"
+paragraph: text="Start writing your own Flux commands in the editor on the left. The output will appear here.", color="text-gray-700"
+card: title="Interactive Elements", text="Use the button command to create interactive components.", style="bg-indigo-50"
+button: text="Say Hello", style="bg-indigo-600 text-white hover:bg-indigo-700", onClick="alert: text='Hello there!', type='success'"
+heading: text="Animated Progress Bar", size="h3", color="text-indigo-600"
+paragraph: text="This animated progress bar can be used to show task progress.", color="text-gray-600"
+progress: id="task-progress", value="50", max="100", label="Task Completion"
+heading: text="Powerful Commands Showcase", size="h3", color="text-indigo-600"
+
+chart: type="bar", labels=["Red", "Blue", "Yellow", "Green"], data=[12, 19, 3, 5], title="Sample Bar Chart"
+
+paragraph: text="Use forms to collect data from your users. The submit button will display the collected data in an alert.", color="text-gray-600"
+form: id="my-first-form"
+input: id="name", placeholder="Enter your name"
+input: id="email", placeholder="Enter your email"
+submit: formId="my-first-form", text="Submit Form", style="bg-indigo-600 text-white hover:bg-indigo-700"
+heading: text="Some Useful Commands", size="h3", color="text-indigo-600"
+list: title="Key Commands", items=["heading", "paragraph", "button", "link", "iframe", "show.image", "search", "chart", "form", "submit"], listStyle="bulleted"
+heading: text="Cloud Storage with Firestore", size="h3", color="text-indigo-600"
+paragraph: text="Store and retrieve data from the cloud securely. Your data is private and linked to your user ID.", color="text-gray-600"
+button: text="Store a Message", style="bg-green-600 text-white hover:bg-green-700", onClick="store: id='message', value='This is a secret message stored in the cloud!'"
+button: text="Load the Message", style="bg-blue-600 text-white hover:bg-blue-700", onClick="load: id='message'"
+heading: text="New UI Commands", size="h2", color="text-teal-600"
+paragraph: text="These new commands allow for more dynamic and flexible UI components.", color="text-gray-600"
+
+badge: text="New Feature", color="bg-teal-100 text-teal-800"
+badge: text="Beta", color="bg-blue-100 text-blue-800"
+circular-progress: value="75", max="100", size="80", color="stroke-teal-500"
+progress: id="progress-bar-2", value="50", max="100", label="Secondary Task"
+
+toggle: id="notifications-toggle", label="Enable Notifications"
+radio-group: name="theme", options=["Light", "Dark", "System"]
+checkbox-group: name="features", options=["Persistence", "API Access", "Real-time"]
+dropdown: id="country-select", label="Select a Country", options=["USA", "Canada", "Mexico"]
+
+modal: id="info-modal", title="Important Information", text="This is a modal window triggered by a button. It provides a way to display extra content without navigating away."
+button.modal: text="Show Info Modal", modalId="info-modal", style="bg-teal-600 text-white hover:bg-teal-700"
+heading: text="New Loops Command", size="h2", color="text-purple-600"
+paragraph: text="The new 'loop' command can be used to generate repetitive content easily.", color="text-gray-600"
+list: title="Generated List Items", listStyle="bulleted"
+loop: count="3"
+paragraph: text="This is a list item generated in a loop.", color="text-purple-700"
+endloop
+`;
+        editor.value = exampleCode;
+        renderFluxApp();
+
+    </script>
+</body>
+</html>
