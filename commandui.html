@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CommandUI | Stable Kinetic Engine v5.2</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style id="cmd-engine-styles">
+        /* --- CORE STABILITY SYSTEM --- */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; outline: none; }
+        html, body { height: 100%; width: 100%; overflow-x: hidden; background: #fdfdfd; color: #111; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; -webkit-font-smoothing: antialiased; }
+
+        /* Prevent Flex/Grid Collapse */
+        [grid] { display: grid !important; }
+        [flex] { display: flex !important; }
+        [column] { flex-direction: column !important; }
+
+        /* --- THE BUBBLE SCROLL KIT --- */
+        [scroll="hide"]::-webkit-scrollbar { display: none; }
+        [scroll="hide"] { -ms-overflow-style: none; scrollbar-width: none; overflow: auto; }
+        
+        .snap-container {
+            display: flex;
+            flex-direction: column;
+            gap: 2.5rem;
+            padding: 2rem;
+            width: 100%;
+        }
+
+        .snap-item {
+            scroll-snap-align: center;
+            flex-shrink: 0;
+            width: 100%;
+            min-height: 220px;
+            background: #fff;
+            border: 1px solid #efefef;
+            border-radius: 32px;
+            padding: 2.5rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.02);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+        }
+
+        /* --- ADVANCED KINETICS --- */
+        [draggable="true"] { 
+            cursor: grab; 
+            user-select: none; 
+            will-change: transform;
+            z-index: 10;
+        }
+        [draggable="true"]:active { cursor: grabbing; z-index: 100; }
+
+        [tilt="true"] {
+            transition: transform 0.1s ease-out;
+            transform-style: preserve-3d;
+        }
+
+        [glass="true"] {
+            background: rgba(255, 255, 255, 0.7) !important;
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.3) !important;
+        }
+
+        /* --- LAYOUT ARCHITECTURE --- */
+        .dot-bg {
+            background-image: radial-gradient(#e5e5e5 1px, transparent 1px);
+            background-size: 32px 32px;
+        }
+
+        #app-root {
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 3rem 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 3rem;
+            min-height: 100vh;
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: 420px 1fr;
+            background: #ffffff;
+            border: 1px solid #f0f0f0;
+            border-radius: 56px;
+            height: 780px;
+            overflow: hidden;
+            box-shadow: 0 50px 120px -40px rgba(0,0,0,0.06);
+        }
+
+        .editor-pane {
+            background: #fcfcfc;
+            border-right: 1px solid #f0f0f0;
+            padding: 2.5rem;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .viewport-pane {
+            background: #fafafa;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            perspective: 1200px;
+        }
+
+        textarea {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            line-height: 2.4;
+            color: #999;
+            margin-top: 2rem;
+        }
+        textarea:focus { color: #000; }
+
+        .ui-toggle {
+            appearance: none; width: 32px; height: 16px; background: #ddd; border-radius: 20px;
+            position: relative; cursor: pointer; transition: 0.3s;
+        }
+        .ui-toggle:checked { background: #000; }
+        .ui-toggle::before {
+            content: ''; position: absolute; width: 10px; height: 10px; background: #fff;
+            border-radius: 50%; top: 3px; left: 3px; transition: 0.3s;
+        }
+        .ui-toggle:checked::before { transform: translateX(16px); }
+
+        .tag {
+            font-size: 9px; font-weight: 900; letter-spacing: 2px; padding: 4px 10px;
+            border-radius: 100px; background: #eee; color: #888;
+        }
+
+        @media (max-width: 1024px) {
+            .workspace { grid-template-columns: 1fr; height: auto; }
+            .viewport-pane { height: 600px; }
+        }
+    </style>
+</head>
+<body class="dot-bg">
+
+    <div id="app-root">
+        <header flex justify-between items-start>
+            <div style="flex: 1;">
+                <div flex items-center gap="4" mb="12">
+                    <div w="8" h="8" bg="black" rounded="xl" flex center color="white" size="10px">⌘</div>
+                    <span size="10px" weight="900" tracking="5px">COMMAND_v5.2</span>
+                    <div class="tag">ULTRA_STABLE</div>
+                </div>
+                <h1 size="110px" weight="800" leading="0.75" tracking="-0.08em" style="min-height: 180px;">
+                    Stable.<br/><span color="#ddd">Kinetic.</span>
+                </h1>
+            </div>
+            
+            <div flex column items="end" gap="10">
+                <div flex column items="end">
+                    <span size="9px" weight="900" color="#ccc" tracking="1px">ENGINE_TIME</span>
+                    <div id="clock" size="24px" weight="800" tracking="-1px">00:00:00</div>
+                </div>
+                <div flex items-center gap="3">
+                    <span size="9px" weight="800" color="#aaa">STABILITY_LOCK</span>
+                    <input type="checkbox" class="ui-toggle" checked>
+                </div>
+                <p size="14px" color="#888" max-w="260px" text-align="right">
+                    Maintaining rigid grid cells with added perspective-tilt and glass-morphism logic.
+                </p>
+            </div>
+        </header>
+
+        <main class="workspace">
+            <div class="editor-pane">
+                <div flex items-center justify-between>
+                    <span size="10px" weight="900" color="#aaa" tracking="2px">SOURCE_INPUT</span>
+                    <span size="9px" color="#eee">v5.2.0</span>
+                </div>
+                <textarea id="cmd-input" spellcheck="false">w="400px"
+h="480px"
+bg="#ffffff" 
+rounded="56px" 
+p="12"
+shadow="0 40px 80px -20px rgba(0,0,0,0.1)"
+scroll="hide"
+snap="y"
+dir="col"
+draggable="true"
+tilt="true"
+glass="true"</textarea>
+                <div mt="12" size="9px" color="#ccc" weight="800">DRIVE_READY</div>
+            </div>
+
+            <div class="viewport-pane">
+                <div id="cmd-preview"></div>
+                <!-- Perspective Lighting Overlay -->
+                <div style="position: absolute; width: 100%; height: 100%; background: radial-gradient(circle at center, rgba(255,255,255,0.2) 0%, transparent 80%); pointer-events: none;"></div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const CommandUI = {
+            commands: {
+                p: ['padding'], m: ['margin'], px: ['padding-left', 'padding-right'], 
+                py: ['padding-top', 'padding-bottom'], bg: ['background-color'], 
+                color: ['color'], rounded: ['border-radius'], size: ['font-size'], 
+                weight: ['font-weight'], tracking: ['letter-spacing'], leading: ['line-height'], 
+                border: ['border'], w: ['width'], h: ['height'], gap: ['gap'],
+                scroll: ['overflow'], snap: ['scroll-snap-type'], dir: ['flex-direction'],
+                shadow: ['box-shadow'], opacity: ['opacity'], tilt: ['data-tilt'], glass: ['data-glass']
+            },
+
+            tokens: {
+                'white': '#ffffff', 'black': '#000000',
+                'hide': 'auto', 'auto': 'auto', 'col': 'column', 'row': 'row',
+                'x': 'x mandatory', 'y': 'y mandatory', 'none': '0px', 'full': '9999px'
+            },
+
+            cache: new Set(),
+            sheet: document.getElementById('cmd-engine-styles'),
+            state: { active: null, dragging: false, v: {x: 0, y:0}, pos: {x:0, y:0}, last: {x:0, y:0} },
+
+            init() {
+                this.execute(document.body);
+                this.setupPhysics();
+                this.setupLab();
+                this.startClock();
+                
+                const obs = new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => n.nodeType === 1 && this.execute(n))));
+                obs.observe(document.body, { childList: true, subtree: true });
+            },
+
+            startClock() {
+                const clock = document.getElementById('clock');
+                setInterval(() => {
+                    const now = new Date();
+                    const timeStr = now.toTimeString().split(' ')[0];
+                    clock.textContent = timeStr;
+                    
+                    // Update variables inside the preview
+                    document.querySelectorAll('[data-variable="time"]').forEach(el => {
+                        el.textContent = timeStr;
+                    });
+                }, 1000);
+            },
+
+            setupLab() {
+                const input = document.getElementById('cmd-input');
+                const preview = document.getElementById('cmd-preview');
+
+                const update = () => {
+                    const matches = [...input.value.matchAll(/([a-z0-9:-]+)="([^"]+)"/g)];
+                    Array.from(preview.attributes).forEach(a => {
+                        if(!['id', 'style', 'class'].includes(a.name)) preview.removeAttribute(a.name);
+                    });
+                    
+                    preview.innerHTML = "";
+                    preview.style.transform = 'translate(0px, 0px)';
+                    this.state.pos = {x:0, y:0};
+                    this.state.v = {x:0, y:0};
+
+                    let isScroll = false;
+                    matches.forEach(m => {
+                        const [_, k, v] = m;
+                        preview.setAttribute(k, v);
+                        if(k === 'scroll') isScroll = true;
+                    });
+
+                    if (isScroll) {
+                        const container = document.createElement('div');
+                        container.className = 'snap-container';
+                        
+                        for(let i=1; i<=4; i++) {
+                            const item = document.createElement('div');
+                            item.className = 'snap-item';
+                            item.innerHTML = `
+                                <div flex justify-between items-center mb="auto">
+                                    <div class="tag">COMPONENT_0${i}</div>
+                                    <span size="10px" weight="900" color="#ccc" data-variable="time">${new Date().toTimeString().split(' ')[0]}</span>
+                                </div>
+                                <div mt="4">
+                                    <div size="10px" weight="900" color="#eee" tracking="2px">KINETIC_NODE</div>
+                                    <div size="24px" weight="800" tracking="-1px">Stable Flow State</div>
+                                </div>
+                            `;
+                            container.appendChild(item);
+                            this.execute(item);
+                        }
+                        preview.appendChild(container);
+                    } else {
+                        preview.innerHTML = `
+                            <div flex column center h="100%" gap="4">
+                                <div size="48px" weight="800" color="#eee">⌘</div>
+                                <div size="10px" weight="900" tracking="4px" color="#ddd">READY_ACTIVE</div>
+                            </div>
+                        `;
+                    }
+
+                    this.execute(preview);
+                };
+
+                input.addEventListener('input', update);
+                update();
+            },
+
+            setupPhysics() {
+                // Perspective Tilt Logic
+                document.addEventListener('mousemove', e => {
+                    const tiltEl = document.querySelector('[tilt="true"]');
+                    if (!tiltEl || this.state.dragging) return;
+                    
+                    const rect = tiltEl.getBoundingClientRect();
+                    const centerX = rect.left + rect.width / 2;
+                    const centerY = rect.top + rect.height / 2;
+                    
+                    const rotateX = (centerY - e.clientY) / 25;
+                    const rotateY = (e.clientX - centerX) / 25;
+                    
+                    tiltEl.style.transform = `translate(${this.state.pos.x}px, ${this.state.pos.y}px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+                });
+
+                const step = () => {
+                    if (this.state.active && !this.state.dragging) {
+                        // Friction and Momentum release
+                        this.state.v.x *= 0.95; this.state.v.y *= 0.95;
+                        this.state.pos.x += this.state.v.x; this.state.pos.y += this.state.v.y;
+                        
+                        const p = this.state.active.parentElement;
+                        if (p) {
+                            const br = p.getBoundingClientRect(), er = this.state.active.getBoundingClientRect();
+                            if (er.left < br.left || er.right > br.right) { this.state.v.x *= -0.6; this.state.pos.x += this.state.v.x*2; }
+                            if (er.top < br.top || er.bottom > br.bottom) { this.state.v.y *= -0.6; this.state.pos.y += this.state.v.y*2; }
+                        }
+
+                        this.state.active.style.transform = `translate(${this.state.pos.x}px, ${this.state.pos.y}px)`;
+                        if (Math.abs(this.state.v.x) < 0.01 && Math.abs(this.state.v.y) < 0.01) this.state.active = null;
+                    }
+                    requestAnimationFrame(step);
+                };
+
+                document.addEventListener('mousedown', e => {
+                    const el = e.target.closest('[draggable="true"]');
+                    if (!el) return;
+                    this.state.active = el; this.state.dragging = true;
+                    this.state.last = {x: e.clientX, y: e.clientY};
+                    
+                    const style = window.getComputedStyle(el);
+                    const matrix = new WebKitCSSMatrix(style.transform);
+                    this.state.pos = {x: matrix.m41, y: matrix.m42};
+                    
+                    el.style.transition = "none";
+                    e.preventDefault();
+                });
+
+                document.addEventListener('mousemove', e => {
+                    if (!this.state.active || !this.state.dragging) return;
+                    const dx = e.clientX - this.state.last.x, dy = e.clientY - this.state.last.y;
+                    this.state.v = {x: dx, y: dy};
+                    this.state.pos.x += dx; this.state.pos.y += dy;
+                    this.state.active.style.transform = `translate(${this.state.pos.x}px, ${this.state.pos.y}px)`;
+                    this.state.last = {x: e.clientX, y: e.clientY};
+                });
+
+                document.addEventListener('mouseup', () => {
+                    if(this.state.active) this.state.active.style.transition = "transform 0.1s ease-out";
+                    this.state.dragging = false;
+                });
+                
+                step();
+            },
+
+            execute(root) {
+                const els = [root, ...root.querySelectorAll('*')];
+                els.forEach(el => Array.from(el.attributes).forEach(a => this.parse(el, a.name, a.value)));
+            },
+
+            parse(el, k, v) {
+                let pre = null, cmd = k;
+                if (k.includes(':')) [pre, cmd] = k.split(':');
+                if (this.commands[cmd] || this.isCSS(cmd)) this.gen(pre, cmd, v);
+            },
+
+            isCSS(p) { return p in document.body.style || ['scroll', 'snap', 'dir', 'tilt', 'glass'].includes(p); },
+
+            gen(pre, cmd, val) {
+                const k = `${pre}-${cmd}-${val}`;
+                if (this.cache.has(k)) return;
+
+                const props = this.commands[cmd] || [cmd];
+                let pVal = this.tokens[val] || val;
+                
+                if (!isNaN(val) && val !== "" && !val.includes('px') && !val.includes('%')) pVal = `${val * 0.25}rem`;
+
+                const sel = `[${pre ? pre + '\\:' : ''}${cmd}="${val.replace(/ /g, '\\ ')}"]`;
+                let body = "";
+
+                if (cmd === 'dir') body = `display: flex; flex-direction: ${pVal};`;
+                else if (['tilt', 'glass'].includes(cmd)) body = ""; // Hook logic
+                else body = props.map(p => `${p}: ${pVal} !important;`).join(' ');
+
+                this.cache.add(k);
+                if(body) this.sheet.appendChild(document.createTextNode(`${sel} { ${body} }\n`));
+            }
+        };
+
+        window.onload = () => CommandUI.init();
+    </script>
+</body>
+</html>
